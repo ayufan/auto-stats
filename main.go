@@ -203,7 +203,7 @@ func readContainers() (err error) {
 		return
 	}
 
-	dockerHost = info.Get("Name")
+	dockerHost = info.Name
 
 	dockerContainers, err := dockerClient.ListContainers(docker.ListContainersOptions{})
 	if err != nil {
