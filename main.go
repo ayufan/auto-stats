@@ -9,6 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	influx "github.com/influxdata/influxdb/client"
+	"strings"
 	"sync"
 )
 
@@ -31,8 +32,8 @@ var influxPassword = flag.String("influxdb-password", getEnvOrDefault("INFLUXDB_
 var influxUnsafeSSL = flag.Bool("influxdb-unsafe-ssl", getEnvOrDefault("INFLUXDB_UNSAFE_SSL", "false") == "true", "Influx allow unsafe SSL")
 var influxDatabase = flag.String("influxdb-database", getEnvOrDefault("INFLUXDB_DATABASE", "auto-stats"), "Influx database")
 
-var statsInterval = flag.Duration("stats-interval", time.Second * 30, "How often to update statistics")
-var listInterval = flag.Duration("list-interval", time.Second * 30, "How often update container list")
+var statsInterval = flag.Duration("stats-interval", time.Second*30, "How often to update statistics")
+var listInterval = flag.Duration("list-interval", time.Second*30, "How often update container list")
 
 var verbose = flag.Bool("debug", getEnvOrDefault("DEBUG", "") != "", "Be more verbose")
 
@@ -68,24 +69,25 @@ type container struct {
 }
 
 func (c *container) processCpuUsage(cpuStats docker.CPUStats, preCpuStats docker.CPUStats) {
-	cpu_delta := cpuStats.CPUUsage.TotalUsage -
-		preCpuStats.CPUUsage.TotalUsage
-	sys_delta := cpuStats.SystemCPUUsage -
-		preCpuStats.SystemCPUUsage
-	if cpu_delta <= 0 || sys_delta <= 0 {
+	cpuDelta := float64(cpuStats.CPUUsage.TotalUsage -
+		preCpuStats.CPUUsage.TotalUsage)
+	sysDelta := float64(cpuStats.SystemCPUUsage -
+		preCpuStats.SystemCPUUsage)
+	if cpuDelta <= 0 || sysDelta <= 0 {
 		return
 	}
 
-	cpu_percent := (cpu_delta / sys_delta) * uint64(len(cpuStats.CPUUsage.PercpuUsage)) * 100
+	cpuPercent := cpuDelta / sysDelta * float64(len(cpuStats.CPUUsage.PercpuUsage)) * 100.0
 
 	pt := influx.Point{
 		Measurement: "cpu",
 		Tags: map[string]string{
-			"id":   c.ID,
-			"name": c.Name,
+			"id":       c.ID,
+			"name":     c.Name,
+			"instance": "total",
 		},
 		Fields: map[string]interface{}{
-			"cpu_total_percent": int64(cpu_percent),
+			"cpu_total_percent": cpuPercent,
 		},
 	}
 	addPoint(pt)
@@ -103,6 +105,46 @@ func (c *container) processMemoryUsage(stats *docker.Stats) {
 			"memory_max_usage": int64(stats.MemoryStats.MaxUsage),
 			"memory_limit":     int64(stats.MemoryStats.Limit),
 			"memory_failcnt":   int64(stats.MemoryStats.Failcnt),
+		},
+	}
+	addPoint(pt)
+}
+
+func (c *container) processBlockIo(stats *docker.Stats) {
+	var blkRead, blkWrite uint64
+
+	for _, bioEntry := range stats.BlkioStats.IOServiceBytesRecursive {
+		switch strings.ToLower(bioEntry.Op) {
+		case "read":
+			blkRead = blkRead + bioEntry.Value
+		case "write":
+			blkWrite = blkWrite + bioEntry.Value
+		}
+	}
+
+	pt := influx.Point{
+		Measurement: "blkio_stats",
+		Tags: map[string]string{
+			"id":   c.ID,
+			"name": c.Name,
+		},
+		Fields: map[string]interface{}{
+			"blkio_read":  int64(blkRead),
+			"blkio_write": int64(blkWrite),
+		},
+	}
+	addPoint(pt)
+}
+
+func (c *container) processPidsStats(stats *docker.Stats) {
+	pt := influx.Point{
+		Measurement: "pids_stats",
+		Tags: map[string]string{
+			"id":   c.ID,
+			"name": c.Name,
+		},
+		Fields: map[string]interface{}{
+			"pids_current": int64(stats.PidsStats.Current),
 		},
 	}
 	addPoint(pt)
@@ -133,6 +175,8 @@ func (c *container) processNetwork(ifname string, networkStats docker.NetworkSta
 func (c *container) process(stats *docker.Stats) {
 	c.processCpuUsage(stats.CPUStats, stats.PreCPUStats)
 	c.processMemoryUsage(stats)
+	c.processBlockIo(stats)
+	c.processPidsStats(stats)
 	if len(stats.Networks) > 0 {
 		for ifname, network := range stats.Networks {
 			c.processNetwork(ifname, network)
