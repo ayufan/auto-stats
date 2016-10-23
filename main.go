@@ -69,6 +69,10 @@ type container struct {
 }
 
 func (c *container) processCpuUsage(cpuStats docker.CPUStats, preCpuStats docker.CPUStats) {
+	if preCpuStats.SystemCPUUsage == 0 {
+		return
+	}
+
 	cpuDelta := float64(cpuStats.CPUUsage.TotalUsage -
 		preCpuStats.CPUUsage.TotalUsage)
 	sysDelta := float64(cpuStats.SystemCPUUsage -
@@ -120,6 +124,8 @@ func (c *container) processBlockIo(stats *docker.Stats) {
 		case "write":
 			blkWrite = blkWrite + bioEntry.Value
 		}
+
+		logrus.Println("test", bioEntry.Op)
 	}
 
 	pt := influx.Point{
