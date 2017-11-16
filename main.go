@@ -4,10 +4,9 @@ import (
 	"flag"
 	"net/url"
 	"os"
-	"time"
-
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
@@ -41,7 +40,7 @@ var verbose = flag.Bool("debug", getEnvOrDefault("DEBUG", "") != "", "Be more ve
 var dockerHost string
 var dockerClient *docker.Client
 var influxClient *influx.Client
-var containers map[string]*container = make(map[string]*container)
+var containers = make(map[string]*container)
 var influxPoints []influx.Point
 var influxPointsLock sync.Mutex
 
@@ -69,15 +68,15 @@ type container struct {
 	Name string
 }
 
-func (c *container) processCpuUsage(cpuStats docker.CPUStats, preCpuStats docker.CPUStats) {
-	if preCpuStats.SystemCPUUsage == 0 {
+func (c *container) processCPUUsage(cpuStats docker.CPUStats, preCPUStats docker.CPUStats) {
+	if preCPUStats.SystemCPUUsage == 0 {
 		return
 	}
 
 	cpuDelta := float64(cpuStats.CPUUsage.TotalUsage -
-		preCpuStats.CPUUsage.TotalUsage)
+		preCPUStats.CPUUsage.TotalUsage)
 	sysDelta := float64(cpuStats.SystemCPUUsage -
-		preCpuStats.SystemCPUUsage)
+		preCPUStats.SystemCPUUsage)
 	if cpuDelta <= 0 || sysDelta <= 0 {
 		return
 	}
@@ -178,7 +177,7 @@ func (c *container) processNetwork(ifname string, networkStats docker.NetworkSta
 }
 
 func (c *container) process(stats *docker.Stats) {
-	c.processCpuUsage(stats.CPUStats, stats.PreCPUStats)
+	c.processCPUUsage(stats.CPUStats, stats.PreCPUStats)
 	c.processMemoryUsage(stats)
 	c.processBlockIo(stats)
 	c.processPidsStats(stats)
