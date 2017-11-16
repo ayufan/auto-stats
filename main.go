@@ -6,11 +6,12 @@ import (
 	"os"
 	"time"
 
+	"strings"
+	"sync"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	influx "github.com/influxdata/influxdb/client"
-	"strings"
-	"sync"
 )
 
 func getEnvOrDefault(key, defaultValue string) string {
@@ -124,8 +125,6 @@ func (c *container) processBlockIo(stats *docker.Stats) {
 		case "write":
 			blkWrite = blkWrite + bioEntry.Value
 		}
-
-		logrus.Println("test", bioEntry.Op)
 	}
 
 	pt := influx.Point{
